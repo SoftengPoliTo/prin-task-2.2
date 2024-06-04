@@ -8,6 +8,7 @@ use crate::error;
 use error::{Error, Result};
 
 /// Structure used to collect API data identified in the code.
+#[derive(Clone)]
 pub struct API {
     /// The name of the API.
     pub name: String,
@@ -92,7 +93,23 @@ pub fn get_file_type<'a>(elf: &'a Elf<'a>) -> Result<&'a str> {
 
 /// Check if the ELF file is statically linked.
 pub fn is_static(elf: &Elf) -> bool {
-    elf.dynamic.is_none()
+    for ph in &elf.program_headers {
+        if ph.p_type == goblin::elf::program_header::PT_DYNAMIC {
+            return false;
+        }
+    }
+    true
+}
+
+pub fn is_pie(elf: &Elf) -> bool {
+    if let Some(dynamic) = &elf.dynamic {
+        dynamic.dyns.iter().any(|d| {
+            d.d_tag == goblin::elf::dynamic::DT_FLAGS_1
+                && d.d_val & goblin::elf::dynamic::DF_1_PIE as u64 != 0
+        })
+    } else {
+        false
+    }
 }
 
 /// Locate the `.text` section in the ELF file.

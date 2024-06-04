@@ -26,7 +26,7 @@ pub enum Error {
 
     /// No API was found.
     #[error("No API found")]
-    APIListEmpty,
+    FuncListEmpty,
 
     /// The `.text` section was not found.
     #[error(".text section not found")]
@@ -56,9 +56,9 @@ pub enum Error {
     #[error("Object error")]
     ObjectError(#[from] object::Error),
 
-    /// The prefix was not found.
-    #[error("Prefix not found")]
-    PrefixNotFound,
+    /// The language was not found.
+    #[error("Language not found")]
+    LangNotFound,
 }
 
 /// A specialized `Result` type for manifest-producer.

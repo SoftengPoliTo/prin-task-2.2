@@ -1,8 +1,8 @@
-use manifest_producer::api_detection::api_search;
+use manifest_producer::api_detection::{func_search, extract_api};
 use manifest_producer::cleanup::syscall_flow;
 use manifest_producer::code_section_handler::code_section;
 use manifest_producer::dwarf_analysis::dwarf_analysis;
-use manifest_producer::elf_utils::{is_static, is_stripped, read_elf_file};
+use manifest_producer::elf_utils::{is_pie, is_static, is_stripped, read_elf_file};
 use manifest_producer::error::{Error, Result};
 use manifest_producer::manifest_creation::{
     basic_info_manifest, feature_manifest, flow_call_manifest,
@@ -33,24 +33,33 @@ pub fn elf_analysis(file_path: &str, api_list: Vec<&str>, path: &str) -> Result<
 
     let lang = match dwarf_analysis(file_path)?.strip_prefix("DW_LANG_") {
         Some(stripped_lang) => stripped_lang.to_owned(),
-        None => "".to_string(), //return Err(Error::PrefixNotFound),
+        None => return Err(Error::LangNotFound),
     };
 
     let link = is_static(&elf);
+    let pie = is_pie(&elf);
 
-    let mut api_found = api_search(&elf, &api_list)?;
-    if api_found.is_empty() {
-        return Err(Error::APIListEmpty);
+    let func_found = func_search(&elf, &lang)?;
+    if func_found.is_empty() {                               
+        return Err(Error::FuncListEmpty);
     }
+    for mut func in func_found {
+        let sys = code_section(&elf, &func, &elf_data, link)?;
+        syscall_flow(&mut func, sys, &lang)?;
+    } 
 
-    for api in &mut api_found {
-        let sys = code_section(&elf, api, &elf_data, link, lang.contains("Rust"))?;
-        syscall_flow(api, sys, &lang)?;
-    }
+    // for name in api_list {
+    //     if let Some(mut api) = extract_api(name, func_found.clone()) {
+    //         let sys = code_section(&elf, &api, &elf_data, link, func_found.clone())?;
+    //         syscall_flow(&mut api, sys, &lang)?;
+    //     } else {
+    //         println!("API: {} NOT FOUND!", name);
+    //     }
+    // }
 
-    basic_info_manifest(&elf, file_path, &api_found, lang, path)?;
-    flow_call_manifest(&api_found, path)?;
-    feature_manifest(&api_found, path)?;
+    // basic_info_manifest(&elf, file_path, &api_found, lang, path)?;
+    // flow_call_manifest(&api_found, path)?;
+    // feature_manifest(&api_found, path)?;
 
     Ok(())
 }
@@ -68,6 +77,12 @@ fn main() {
         println!("Usage: {} <ELF_file_path> <JSON_file_path>", args[0]);
         return;
     }
+
+    // if args.len() < 2 {
+    //     println!("Usage: {} <ELF_file_path>", args[0]);
+    //     return;
+    // }
+
     let elf_file_path = &args[1];
     let json_file_path = &args[2];
 
@@ -84,6 +99,6 @@ fn main() {
 
     match elf_analysis(elf_file_path, api_list_refs, manifest_path) {
         Ok(_) => println!("Analysis performed successfully!"),
-        Err(error) => eprintln!("Elf analysis failed: {}", error),
+        Err(error) => eprintln!("Elf analysis failed due to: {}", error),
     };
 }

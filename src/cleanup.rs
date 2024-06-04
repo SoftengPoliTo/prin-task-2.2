@@ -46,6 +46,25 @@ fn demangle_function_name(mangled_name: &str, rust: bool) -> Result<String> {
     }
 }
 
+pub fn demangle_func_name(mangled_name: &str, language: &str) -> Result<String> {
+    match language {
+        "Rust" | "rust" => {
+            let demangled_name = demangle(mangled_name).to_string();
+            Ok(demangled_name)
+        }
+        "C_plus_plus_14" | "C++" => {
+            if mangled_name.starts_with("_Z") {
+                let options = DemangleOptions::default();
+                let demangled_name = Symbol::new(mangled_name)?.demangle(&options)?;
+                Ok(demangled_name)
+            } else {
+                Ok(mangled_name.to_string())
+            }
+        }
+        _ => Ok(mangled_name.to_string()),
+    }
+}
+
 // This function cleans up the demangled Rust function names.
 fn clean_rust(demangled_name: &str) -> Option<String> {
     let excluded_keywords = ["core::result", "shake_intern", "core::iter"];

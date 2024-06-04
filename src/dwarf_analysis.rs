@@ -1,4 +1,4 @@
-use std::{borrow, fs};
+use std::{borrow, collections::HashMap, fs};
 
 use object::{Object, ObjectSection};
 
@@ -28,14 +28,14 @@ pub fn dwarf_analysis(file_path: &str) -> Result<String> {
     };
 
     let lang = analyze_elf_file(&object, endian)?;
-    Ok(lang.to_string())
+    Ok(lang)
 }
 
 // Parse the dwarf format in the .debug_info section. Language attributes table available here: https://dwarfstd.org/languages.html
 fn analyze_elf_file<'b>(
     object: &'b object::File<'b>,
     endian: gimli::RunTimeEndian,
-) -> Result<&'b str> {
+) -> Result<String> {
     let load_section = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>> {
         match object.section_by_name(id.name()) {
             Some(ref section) => Ok(section
@@ -44,7 +44,8 @@ fn analyze_elf_file<'b>(
             None => Ok(borrow::Cow::Borrowed(&[][..])),
         }
     };
-    let mut lang = "";
+
+    let mut language_counts = HashMap::new();
     let dwarf_cow = gimli::Dwarf::load(&load_section)?;
     let borrow_section: &dyn for<'a> Fn(
         &'a borrow::Cow<[u8]>,
@@ -64,16 +65,29 @@ fn analyze_elf_file<'b>(
                     gimli::AttributeValue::Language(language) => language,
                     _ => continue,
                 };
-                if let Some(name) = language.static_string() {
-                    if lang.contains(name) {
-                        return Ok(lang);
-                    }
-                    lang = name;
-                }
+                increment_language_count(&mut language_counts, &language.to_string());
             }
         }
     }
-    Ok(lang)
+    let mut max_count = 0;
+    let mut max_language = "".to_string();
+
+    // The presence of C99 in the Rust program is due to the musl library, used to statically compile the binary
+    if language_counts.contains_key("DW_LANG_C99") && language_counts.contains_key("DW_LANG_Rust") {
+        language_counts.remove_entry("DW_LANG_C99");
+    }
+    for (language, count) in language_counts {
+        if count > max_count {
+            max_count = count;
+            max_language = language.clone();
+        }
+    }
+    Ok(max_language)
+}
+
+fn increment_language_count(map: &mut HashMap<String, u32>, language: &str) {
+    let count = map.entry(language.to_string()).or_insert(0);
+    *count += 1;
 }
 
 #[cfg(test)]

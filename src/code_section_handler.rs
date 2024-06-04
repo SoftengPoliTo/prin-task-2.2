@@ -30,7 +30,6 @@ pub fn code_section(
     api: &API,
     buffer: &[u8],
     link: bool,
-    rust: bool,
 ) -> Result<Vec<String>> {
     let text_section = find_text_section(elf).ok_or(Error::TextSectionNotFound)?;
     let code_slice: &[u8];
@@ -45,7 +44,7 @@ pub fn code_section(
             &buffer[text_start_index + func_start_offset..text_start_index + func_end_offset];
 
         println!("\n{:#x}\t<{}>", &api.start_addr, &api.name);
-        sys_call = disassemble(elf, code_slice, api.start_addr, link, None, rust)?;
+        sys_call = disassemble(elf, code_slice, api.start_addr, link, None)?;
     } else {
         // Dynamic linking
         code_slice = &buffer[(api.start_addr) as usize..(api.end_addr) as usize];
@@ -57,7 +56,7 @@ pub fn code_section(
         let tbl = load_rela_plt_relocations(elf, plt_section, plt_entry_size, found_plt_sec);
 
         println!("\n{:#x}\t<{}>", &api.start_addr, &api.name);
-        sys_call = disassemble(elf, code_slice, api.start_addr, link, tbl, rust)?;
+        sys_call = disassemble(elf, code_slice, api.start_addr, link, tbl)?;
     }
 
     Ok(sys_call)
@@ -73,7 +72,6 @@ fn disassemble(
     addr: u64,
     link: bool,
     plt_map: Option<HashMap<u64, &str>>,
-    rust: bool,
 ) -> Result<Vec<String>> {
     let cs = cs_init()?;
     let mut sys_call: Vec<String> = vec![];
@@ -84,11 +82,7 @@ fn disassemble(
         let insn_name = cs.insn_name(insn.id()).unwrap();
         let op_str = insn.op_str().unwrap();
 
-        if rust && insn_name == "lea" {
-            if let Some(name) = lea_instruction(elf, op_str, insn_addr, insn_name.clone()) {
-                sys_call.push(name);
-            }
-        } else if insn_name == "call" && !rust {
+        if insn_name == "call" {
             if let Some(name) = call_instruction(
                 elf,
                 op_str,
@@ -107,37 +101,37 @@ fn disassemble(
 }
 
 // Handles the instruction 'lea', identifies the function name, and adds any interface called by API.
-fn lea_instruction<'a>(
-    elf: &'a Elf<'a>,
-    op_str: &'a str,
-    insn_addr: u64,
-    insn_name: String,
-) -> Option<String> {
-    if let Some(offset_str) = op_str.strip_suffix("(%rip), %rax") {
-        if offset_str.starts_with('-') {
-            if let Some(addr_str) = offset_str.strip_prefix("-0x") {
-                if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
-                    let target_addr = insn_addr.wrapping_sub(addr);
-                    let target_addr_aligned = target_addr + 7;
-                    if let Some(name) = get_name_addr(elf, target_addr_aligned) {
-                        println!("0x{:x}:\t{}\t<{}>", insn_addr, insn_name, name);
-                        return Some(name.to_string());
-                    }
-                }
-            }
-        } else if let Some(addr_str) = offset_str.strip_prefix("0x") {
-            if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
-                let target_addr = insn_addr.wrapping_add(addr);
-                let target_addr_aligned = target_addr + 7;
-                if let Some(name) = get_name_addr(elf, target_addr_aligned) {
-                    println!("0x{:x}:\t{}\t<{}>", insn_addr, insn_name, name);
-                    return Some(name.to_string());
-                }
-            }
-        }
-    }
-    None
-}
+// fn lea_instruction<'a>(
+//     elf: &'a Elf<'a>,
+//     op_str: &'a str,
+//     insn_addr: u64,
+//     insn_name: String,
+// ) -> Option<String> {
+//     if let Some(offset_str) = op_str.strip_suffix("(%rip), %rax") {
+//         if offset_str.starts_with('-') {
+//             if let Some(addr_str) = offset_str.strip_prefix("-0x") {
+//                 if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
+//                     let target_addr = insn_addr.wrapping_sub(addr);
+//                     let target_addr_aligned = target_addr + 7;
+//                     if let Some(name) = get_name_addr(elf, target_addr_aligned) {
+//                         println!("0x{:x}:\t{}\t<{}>", insn_addr, insn_name, name);
+//                         return Some(name.to_string());
+//                     }
+//                 }
+//             }
+//         } else if let Some(addr_str) = offset_str.strip_prefix("0x") {
+//             if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
+//                 let target_addr = insn_addr.wrapping_add(addr);
+//                 let target_addr_aligned = target_addr + 7;
+//                 if let Some(name) = get_name_addr(elf, target_addr_aligned) {
+//                     println!("0x{:x}:\t{}\t<{}>", insn_addr, insn_name, name);
+//                     return Some(name.to_string());
+//                 }
+//             }
+//         }
+//     }
+//     None
+// }
 
 // Handles the instruction 'call', identifies the function name, and adds any interface called by API.
 fn call_instruction<'a>(
